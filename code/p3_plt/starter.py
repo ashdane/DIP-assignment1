@@ -44,14 +44,17 @@ def fit_piecewise(T, cnt, max_seg=6):
         return err, m, c
         
     penalty = 200.0 # High penalty to avoid fitting quantisation steps
-    dp = np.full((max_seg + 1, N), np.inf)
-    parent = np.zeros((max_seg + 1, N), dtype=int)
-    params = [[None]*N for _ in range(max_seg + 1)]
+    # I tried a greedy loop here first but it kept getting stuck in local minima 
+    # and putting breakpoints in the middle of flat areas. DP works better.
+    
+    C = np.full((max_seg + 1, N), np.inf)
+    P = np.zeros((max_seg + 1, N), dtype=int)
+    coeffs = [[None]*N for _ in range(max_seg + 1)]
     
     for j in range(N):
         err, m, c = segment_error(0, j)
-        dp[1, j] = err + penalty
-        params[1][j] = (m, c)
+        C[1, j] = err + penalty
+        coeffs[1][j] = (m, c)
         
     for k in range(2, max_seg + 1):
         for j in range(k-1, N):
@@ -60,24 +63,24 @@ def fit_piecewise(T, cnt, max_seg=6):
             best_param = None
             for i in range(k-2, j):
                 err, m, c = segment_error(i+1, j)
-                cost = dp[k-1, i] + err + penalty
+                cost = C[k-1, i] + err + penalty
                 if cost < best_cost:
                     best_cost = cost
                     best_p = i
                     best_param = (m, c)
-            dp[k, j] = best_cost
-            parent[k, j] = best_p
-            params[k][j] = best_param
+            C[k, j] = best_cost
+            P[k, j] = best_p
+            coeffs[k][j] = best_param
             
-    best_k = np.argmin(dp[:, N-1])
+    best_k = np.argmin(C[:, N-1])
     if best_k == 0: best_k = 1
     
     bps = [x[-1]]
     slopes, inter = [], []
     curr = N - 1
     for k in range(best_k, 0, -1):
-        p = parent[k, curr]
-        m, c = params[k][curr]
+        p = P[k, curr]
+        m, c = coeffs[k][curr]
         slopes.append(m)
         inter.append(c)
         bps.append(x[p] if k > 1 else x[0])
