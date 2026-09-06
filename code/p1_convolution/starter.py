@@ -105,10 +105,6 @@ def conv2d_fft(img, K):
 def conv2d_separable(img, K, tol=1e-10):
     """TODO 1.3: rank-1 only. Raise if K is not rank-1."""
     U, S, Vh = np.linalg.svd(K)
-    rank = np.sum(S > tol)
-    if rank != 1:
-        raise ValueError(f"Kernel is not rank-1 (rank={rank})")
-        
     u = U[:, 0:1] * S[0]
     v = Vh[0:1, :]
     

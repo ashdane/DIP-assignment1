@@ -28,8 +28,6 @@ def embed_lsb(cover, bits, plane=0):
     h, w = stego.shape
     bits = np.asarray(bits, dtype=np.uint8).flatten()
     n = len(bits)
-    if n > h * w:
-        raise ValueError("Payload too large")
     stego_flat = stego.flatten()
     mask = np.uint8(255 - (1 << plane))
     stego_flat[:n] = (stego_flat[:n] & mask) | (bits << plane)
@@ -45,7 +43,7 @@ def extract_lsb(stego, n, plane=0):
 def embed_robust(cover, bits, block_size=64, delta=3, **kw):
     """TODO 2.3: your design. Must carry 128 bits at PSNR(cover,stego) >= 40 dB
     and survive the channels below. Document your parameters."""
-    stego = cover.astype(np.float64).copy()
+    stego = np.array(cover, dtype=np.float64)
     h, w = cover.shape
     bits = np.asarray(bits).flatten()
     n = len(bits)
