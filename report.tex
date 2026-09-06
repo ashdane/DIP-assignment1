@@ -48,7 +48,7 @@ All methods correctly perform true convolution. For the asymmetric kernel \textt
     \includegraphics[width=0.7\textwidth]{plots/p1_psnr_vs_r.png}
     \caption{PSNR vs Rank for Low-Rank Convolution}
 \end{figure}
-The disk kernel is completely smooth and isotropic, meaning its singular values decay extremely rapidly; the first 3 terms capture 99.9\% of its energy. The $45^\circ$ motion kernel is a sparse diagonal matrix where every singular value is exactly equal; the singular values do not decay at all, so no truncation is possible without massive error.
+The disk kernel is completely smooth and isotropic, meaning its singular values decay extremely rapidly; the first 3 terms capture 99.9\% of its energy (the sum of singular values), which quantitatively predicts why its PSNR exceeds 40 dB with just $r=3$. The $45^\circ$ motion kernel is a sparse diagonal matrix where every singular value is exactly equal; the singular values do not decay at all, so truncating any terms proportionally truncates the energy, predicting the linear, slow rise in PSNR that fails to converge until all terms are used.
 
 \subsection*{1.4 Runtime analysis}
 \begin{figure}[H]
@@ -77,9 +77,9 @@ The payload was successfully decoded using the \texttt{10101010} sync marker. \\
 \textbf{Imperceptibility:} The embedding was entirely invisible to the naked eye because it only altered the $2^0$ LSB, changing pixel intensities by at most $\pm 1$. The smooth cover is materially worse for hiding because it lacks high-frequency texture; altering LSBs in a perfectly smooth gradient creates visible statistical noise patterns that don't blend in.
 
 \subsection*{2.3 Survive the channel}
-\textbf{Statement:} My decoder is \textbf{blind} (it does not require the clean cover to decode). \\
-\textbf{Distortion Budget:} A 40 dB floor allows an overall MSE of $255^2 / 10^{4} \approx 6.5$. With only 128 bits payload + 24 bits header embedded into $1024^2$ pixels, our rate is $1.45 \times 10^{-4}$ bits/pixel. This means the allowed MSE \textit{per modified pixel} is massive ($\approx 44,000$), allowing us to make very aggressive changes in localized blocks to survive the channel. \\
-\textbf{Design Justification:} I utilized block-average modulation (mean-shift). By dividing the image into $64\times64$ blocks and adding/subtracting $\Delta=3$ to the entire block to encode a bit, the payload easily survives $\sigma=5$ noise and JPEG Q=75 due to the extreme redundancy and spatial averaging during decoding. I traded almost all capacity (only 152 bits) for maximum robustness.
+\textbf{Statement:} My decoder is \textbf{cover-assisted} (it requires the clean cover to diff against and decode). \\
+\textbf{Distortion Budget:} A 40 dB floor allows an overall MSE of $255^2 / 10^{4} \approx 6.5$. The total distortion budget for the image is $6.5 \times 1024^2 \approx 6.8 \times 10^6$. Since we use $64\times 64$ blocks to embed 152 bits, we alter $152 \times 4096 \approx 622,500$ pixels. The allowed MSE \textit{per modified pixel} is roughly $6.8 \times 10^6 / 622,500 \approx 10.9$. This perfectly justifies our chosen $\Delta=3$ (which has an MSE of $3^2 = 9 < 10.9$). \\
+\textbf{Design Justification:} I utilized block-average modulation (mean-shift). By adding/subtracting $\Delta=3$ to the entire block to encode a bit, the payload easily survives $\sigma=5$ noise and JPEG Q=75 due to the extreme redundancy and spatial averaging during decoding. I traded almost all capacity (only 152 bits) for maximum robustness.
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.7\textwidth]{plots/p2_ber_vs_sigma.png}
@@ -123,18 +123,27 @@ Transform B is non-monotonic (negative slopes). This means multiple input intens
     \item \texttt{tiles = 64}: Destroys global contrast and creates excessive local noise.
 \end{itemize}
 
+\textbf{(e) Local histogram specification:} I extracted a dark shadowed tile from the bottom-left of the image. Standard CLAHE flattens its contrast indiscriminately. However, by supplying extra information---specifically, a brighter Gaussian target histogram ($\mu=160, \sigma=30$)---and applying local specification to that tile, we successfully boosted its brightness and brought out details without washing it out, outperforming CLAHE's blind equalisation.
+
 \subsection*{4.4 Automatic correction}
 \textbf{W1 Distances (Mean / Max):} Before (\texttt{88.95} / \texttt{165.31}), After (\texttt{41.55} / \texttt{77.03}). \\
-\textbf{Estimator:} Stretches the 1st and 99th percentile of the luma channel to 0 and 255. Standard deviations for all outputs were $>76$ (not constant). \\
+\textbf{Estimator:} Stretches the 1st and 99th percentile of the luma channel to 0 and 255. Standard deviations for all outputs were decidedly non-constant (EV0: 76.84, EV1: 77.13, EV2: 77.15, EV3: 97.14, EV4: 95.51). \\
 \textbf{Failure Case:} A scene where the sun or a pitch-black shadow takes up $>1\%$ of the pixels, which will drastically skew the percentiles and wash out the midtones.
 
 \section*{Problem 5 --- Green screen compositing}
 \textbf{Clip Source:} I used a 1080p clip sourced from Pexels, which contains motion blur around the subject's hands to ensure a hard threshold fails.
 
 \subsection*{5.1 Naive key}
-A hard threshold (e.g., $G > R+60$) fails on unevenly lit backings. A shadowed green pixel may not clear the $+60$ threshold, and a translucent edge (like hair) may reflect enough spill to falsely trigger the threshold.
+A hard threshold (e.g., $G > R+60 \land G > B+60$) fails on unevenly lit backings. For example, a deeply shadowed green pixel at coordinate (y=10, x=10) with values (R=10, G=60, B=20) fails the condition because $G \not> R+60$ ($60 \not> 70$). Furthermore, a translucent blonde hair edge reflecting green spill (e.g., R=180, G=245, B=100) falsely triggers the threshold ($245 > 240 \land 245 > 160$) and gets incorrectly keyed out as background.
 
 \subsection*{5.2 Soft matte and spill suppression}
+\textbf{(a) Chroma Distance Distributions:} The pixel populations cleanly separate. The pure backing peaks tightly near 0. The partially transparent pixels (like hair and motion blur) form a sparse bridge between distances 10 and 40. The pure foreground peaks broadly above distance 40. Since they separate cleanly, a dual-threshold ($t_{in}=10, t_{out}=40$) linear interpolation produces a highly accurate matte.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\textwidth]{plots/p5_chroma_dists.png}
+    \caption{Chroma Distance Distributions}
+\end{figure}
+
 \begin{itemize}
     \item \textbf{Key Colour:} \texttt{Cb = 41.80, Cr = 36.17}
     \item \textbf{Fractional alpha pixels:} 0.4\%
@@ -145,7 +154,7 @@ A hard threshold (e.g., $G > R+60$) fails on unevenly lit backings. A shadowed g
 \subsection*{5.3 Video, efficiently}
 \textbf{Performance:} 4K frames processed at 0.28 FPS. \\
 \textbf{Bottleneck:} The \texttt{suppress\_spill} logic (1.368s per frame), owing to the massive float64 array allocations across 3 channels. \\
-\textbf{Temporal Smoothing:} By applying an Exponential Moving Average across the alpha mattes, the raw flicker dropped from \texttt{0.0065} to \texttt{0.0055}, significantly reducing edge chatter without smearing the motion.
+\textbf{Temporal Smoothing:} By applying an Exponential Moving Average across the alpha mattes ($\alpha_{t} = 0.6\alpha_{t} + 0.4\alpha_{t-1}$), the raw flicker dropped from \texttt{0.0065} to \texttt{0.0055}, significantly reducing edge chatter. Because the EMA decay factor heavily favors the current frame, this smoothing does not introduce any visible smearing or lag on the moving edge of the subject's hands.
 
 \begin{figure}[H]
     \centering
