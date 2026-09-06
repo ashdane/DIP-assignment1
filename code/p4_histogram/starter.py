@@ -54,20 +54,17 @@ def wasserstein1(h1, h2):
 def ahe(img, tiles=8):
     """TODO 4.3: plain tiled AHE. No clipping, no interpolation. This one is
     SUPPOSED to look bad -- that is the point."""
-    rows, cols = img.shape
+    h, w = img.shape
     out = np.zeros_like(img)
-    th = rows // tiles
-    tw = cols // tiles
+    th = h // tiles
+    tw = w // tiles
     
     for i in range(tiles):
         for j in range(tiles):
-            r_start = i * th
-            r_end = (i + 1) * th if i < tiles - 1 else rows
-            c_start = j * tw
-            c_end = (j + 1) * tw if j < tiles - 1 else cols
-            
-            patch = img[r_start:r_end, c_start:c_end]
-            out[r_start:r_end, c_start:c_end] = equalise(patch)
+            r0, r1 = i * th, (i + 1) * th if i < tiles - 1 else h
+            c0, c1 = j * tw, (j + 1) * tw if j < tiles - 1 else w
+            patch = img[r0:r1, c0:c1]
+            out[r0:r1, c0:c1] = equalise(patch)
             
     return out
 
@@ -77,18 +74,16 @@ def clahe(img, tiles=8, clip=3.0, bins=256):
     and bilinearly interpolate between the four surrounding tile LUTs.
 
     Watch the tile-centre offset. That is where the marks go."""
-    r, c = img.shape
-    th = r / tiles
-    tw = c / tiles
+    h, w = img.shape
+    th = h / tiles
+    tw = w / tiles
     
     luts = np.zeros((tiles, tiles, 256), dtype=np.float64)
     for i in range(tiles):
         for j in range(tiles):
-            r_start = int(i * th)
-            r_end = int((i + 1) * th if i < tiles - 1 else r)
-            c_start = int(j * tw)
-            c_end = int((j + 1) * tw if j < tiles - 1 else c)
-            patch = img[r_start:r_end, c_start:c_end]
+            r0, r1 = int(i * th), int((i + 1) * th if i < tiles - 1 else h)
+            c0, c1 = int(j * tw), int((j + 1) * tw if j < tiles - 1 else w)
+            patch = img[r0:r1, c0:c1]
             
             hh = np.bincount(patch.ravel(), minlength=256).astype(np.float64)
             mean_height = len(patch.ravel()) / 256.0
@@ -104,34 +99,31 @@ def clahe(img, tiles=8, clip=3.0, bins=256):
             F = np.cumsum(hh) / np.sum(hh)
             luts[i, j] = np.round(255 * F)
             
-    yy, xx = np.meshgrid(np.arange(r), np.arange(c), indexing='ij')
+    yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing='ij')
     
-    # this took forever to figure out
-    # ty = yy / th - wait no
-    # why is the offset th/2??
     ty = (yy - th / 2) / th
     tx = (xx - tw / 2) / tw
     
     ty = np.clip(ty, 0, tiles - 1.001)
     tx = np.clip(tx, 0, tiles - 1.001)
     
-    top_y = np.floor(ty).astype(int)
-    bot_y = np.clip(top_y + 1, 0, tiles - 1)
-    left_x = np.floor(tx).astype(int)
-    right_x = np.clip(left_x + 1, 0, tiles - 1)
+    y0 = np.floor(ty).astype(int)
+    y1 = np.clip(y0 + 1, 0, tiles - 1)
+    x0 = np.floor(tx).astype(int)
+    x1 = np.clip(x0 + 1, 0, tiles - 1)
     
-    y_dist = ty - top_y
-    x_dist = tx - left_x
+    dy = ty - y0
+    dx = tx - x0
     
     v = img
-    val00 = luts[top_y, left_x, v]
-    val01 = luts[top_y, right_x, v]
-    val10 = luts[bot_y, left_x, v]
-    val11 = luts[bot_y, right_x, v]
+    val00 = luts[y0, x0, v]
+    val01 = luts[y0, x1, v]
+    val10 = luts[y1, x0, v]
+    val11 = luts[y1, x1, v]
     
-    val0 = val00 * (1 - x_dist) + val01 * x_dist
-    val1 = val10 * (1 - x_dist) + val11 * x_dist
-    val = val0 * (1 - y_dist) + val1 * y_dist
+    val0 = val00 * (1 - dx) + val01 * dx
+    val1 = val10 * (1 - dx) + val11 * dx
+    val = val0 * (1 - dy) + val1 * dy
     
     return np.round(val).astype(np.uint8)
 
